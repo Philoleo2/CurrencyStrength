@@ -1,0 +1,485 @@
+"""
+Currency Strength Mobile – Yahoo Finance Data Fetcher
+=====================================================
+Uses ONLY http.client (lowest-level Python stdlib HTTP) for maximum
+Android / serious_python sandbox compatibility.
+No urllib, no requests, no opener chains — just raw HTTPS connections.
+"""
+
+import os
+import sys
+import ssl
+import time
+import json
+import socket
+import logging
+import http.client
+import numpy as np
+import pandas as pd
+from datetime import datetime, timezone
+from urllib.parse import urlparse, urlencode
+
+from app_config import FOREX_PAIRS, FUTURES_TICKERS, CURRENCIES
+
+_log = logging.getLogger(__name__)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  PLATFORM & SSL
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_IS_ANDROID = (
+    hasattr(sys, "getandroidapilevel")
+    or "ANDROID_ROOT" in os.environ
+    or os.path.exists("/system/build.prop")
+)
+
+_UA = (
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+)
+
+# SSL context — always unverified for max compatibility on Android
+_ssl_ctx = ssl._create_unverified_context()
+
+_log.info(f"PLATFORM: Android={_IS_ANDROID}  Python={sys.version}")
+_log.info(f"SSL: {ssl.OPENSSL_VERSION}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  HTTP LAYER — http.client ONLY (lowest level, no middleware)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Manual cookie storage (simple: just store all Set-Cookie values)
+_cookies: dict[str, str] = {}
+
+
+def _store_cookies(resp_headers):
+    """Extract Set-Cookie headers and store them."""
+    for key, val in resp_headers:
+        if key.lower() == "set-cookie":
+            # Store just the name=value part (before ;)
+            cookie_part = val.split(";")[0].strip()
+            if "=" in cookie_part:
+                name, value = cookie_part.split("=", 1)
+                _cookies[name.strip()] = value.strip()
+
+
+def _cookie_header() -> str:
+    """Format cookies for Cookie header."""
+    if not _cookies:
+        return ""
+    return "; ".join(f"{k}={v}" for k, v in _cookies.items())
+
+
+def _make_headers() -> dict:
+    """Standard request headers."""
+    h = {
+        "User-Agent": _UA,
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.5",
+    }
+    ck = _cookie_header()
+    if ck:
+        h["Cookie"] = ck
+    return h
+
+
+def _http_get(host: str, path: str, timeout: int = 12,
+              follow_redirects: int = 3) -> tuple:
+    """
+    Pure http.client GET. Returns (status, body_str, response_headers).
+    Handles redirects manually. Stores cookies from responses.
+    """
+    for redirect_i in range(follow_redirects + 1):
+        conn = http.client.HTTPSConnection(host, timeout=timeout,
+                                            context=_ssl_ctx)
+        try:
+            headers = _make_headers()
+            conn.request("GET", path, headers=headers)
+            resp = conn.getresponse()
+            _store_cookies(resp.getheaders())
+
+            if resp.status in (301, 302, 303, 307, 308):
+                location = resp.getheader("Location", "")
+                resp.read()  # drain body
+                conn.close()
+                if location:
+                    if location.startswith("http"):
+                        p = urlparse(location)
+                        host = p.netloc
+                        path = p.path + ("?" + p.query if p.query else "")
+                    else:
+                        path = location
+                    _log.debug(f"  redirect {resp.status} → {host}{path}")
+                    continue
+                break
+
+            body = resp.read().decode("utf-8", errors="replace")
+            return resp.status, body, resp.getheaders()
+        finally:
+            conn.close()
+
+    return 0, "", []
+
+
+def _get(url: str, timeout: int = 12) -> tuple:
+    """Convenience: parse URL and call _http_get. Returns (status, body)."""
+    p = urlparse(url)
+    host = p.netloc
+    path = p.path
+    if p.query:
+        path += "?" + p.query
+    if not path:
+        path = "/"
+    st, body, _ = _http_get(host, path, timeout)
+    return st, body
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  NETWORK PROBE — run at startup for diagnostics
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_probe_results = ""
+
+
+def _deep_network_probe() -> str:
+    """Test networking at multiple levels. Returns summary string."""
+    global _probe_results
+    results = []
+
+    # 1. Raw TCP socket
+    try:
+        _log.info("PROBE 1: TCP socket → google.com:443")
+        sock = socket.create_connection(("www.google.com", 443), timeout=8)
+        sock.close()
+        results.append("TCP:OK")
+        _log.info("  ✓ TCP OK")
+    except Exception as e:
+        results.append(f"TCP:FAIL({type(e).__name__})")
+        _log.error(f"  ✗ TCP: {e}")
+
+    # 2. SSL wrapped
+    try:
+        _log.info("PROBE 2: SSL → google.com:443")
+        sock = socket.create_connection(("www.google.com", 443), timeout=8)
+        ssock = _ssl_ctx.wrap_socket(sock, server_hostname="www.google.com")
+        ssock.close()
+        results.append("SSL:OK")
+        _log.info("  ✓ SSL OK")
+    except Exception as e:
+        results.append(f"SSL:FAIL({type(e).__name__})")
+        _log.error(f"  ✗ SSL: {e}")
+
+    # 3. http.client → google
+    try:
+        _log.info("PROBE 3: http.client → google.com")
+        st, body, _ = _http_get("www.google.com", "/", timeout=8)
+        results.append(f"HC_google:{st}({len(body)}b)")
+        _log.info(f"  ✓ google: {st}, {len(body)}b")
+    except Exception as e:
+        results.append(f"HC_google:FAIL({type(e).__name__})")
+        _log.error(f"  ✗ google: {e}")
+
+    # 4. http.client → Yahoo Finance
+    try:
+        _log.info("PROBE 4: http.client → query2.finance.yahoo.com")
+        st, body, _ = _http_get(
+            "query2.finance.yahoo.com",
+            "/v8/finance/chart/EURUSD=X?range=1d&interval=1h",
+            timeout=10
+        )
+        results.append(f"HC_yahoo:{st}({len(body)}b)")
+        _log.info(f"  ✓ yahoo chart: {st}, {len(body)}b")
+        if st == 200:
+            # Try to parse first few chars
+            _log.info(f"  body[:100]: {body[:100]}")
+    except Exception as e:
+        results.append(f"HC_yahoo:FAIL({type(e).__name__})")
+        _log.error(f"  ✗ yahoo chart: {e}")
+
+    # 5. http.client → Yahoo crumb
+    try:
+        _log.info("PROBE 5: http.client → fc.yahoo.com (consent)")
+        st, body, _ = _http_get("fc.yahoo.com", "/", timeout=8)
+        results.append(f"HC_consent:{st}")
+        _log.info(f"  consent: {st}, cookies={_cookies}")
+    except Exception as e:
+        results.append(f"HC_consent:FAIL({type(e).__name__})")
+        _log.error(f"  ✗ consent: {e}")
+
+    try:
+        _log.info("PROBE 6: http.client → crumb")
+        st, body, _ = _http_get(
+            "query2.finance.yahoo.com", "/v1/test/getcrumb", timeout=8)
+        results.append(f"HC_crumb:{st}('{body[:20]}')")
+        _log.info(f"  crumb: {st}, body='{body[:30]}'")
+    except Exception as e:
+        results.append(f"HC_crumb:FAIL({type(e).__name__})")
+        _log.error(f"  ✗ crumb: {e}")
+
+    _probe_results = " | ".join(results)
+    _log.info(f"PROBE SUMMARY: {_probe_results}")
+    return _probe_results
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  YAHOO SESSION (crumb)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_crumb: str | None = None
+_crumb_ts: float = 0
+
+
+def _init_yahoo_session() -> str | None:
+    global _crumb, _crumb_ts
+    if _crumb and time.time() < _crumb_ts:
+        return _crumb
+
+    _log.info("=== Yahoo session (http.client) ===")
+
+    # 1. consent cookie
+    try:
+        st, _, _ = _http_get("fc.yahoo.com", "/", timeout=8)
+        _log.info(f"  fc.yahoo.com → {st}, cookies={list(_cookies.keys())}")
+    except Exception as exc:
+        _log.warning(f"  fc.yahoo.com: {type(exc).__name__}: {exc}")
+
+    # 2. crumb
+    for host in ("query2.finance.yahoo.com", "query1.finance.yahoo.com"):
+        try:
+            st, body, _ = _http_get(host, "/v1/test/getcrumb", timeout=8)
+            _log.info(f"  {host} crumb → {st}, body='{body[:30]}'")
+            if st == 200 and body and len(body) < 50:
+                _crumb = body.strip()
+                _crumb_ts = time.time() + 1800
+                _log.info(f"  ✓ crumb: {_crumb[:10]}…")
+                return _crumb
+        except Exception as exc:
+            _log.warning(f"  {host} crumb: {type(exc).__name__}: {exc}")
+
+    _log.warning("  No crumb – will try without")
+    _crumb = None
+    _crumb_ts = time.time() + 120
+    return None
+
+
+def _reset_crumb():
+    global _crumb, _crumb_ts
+    _crumb = None
+    _crumb_ts = 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  CONNECTIVITY / DIAGNOSTICS (called from UI)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def test_connectivity() -> dict:
+    return {"probe": _deep_network_probe()}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  CHART FETCH
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_HOSTS = ("query2.finance.yahoo.com", "query1.finance.yahoo.com")
+
+
+def _parse_chart_json(body: str, symbol: str) -> pd.DataFrame:
+    data = json.loads(body)
+    result = data.get("chart", {}).get("result")
+    if not result:
+        err = data.get("chart", {}).get("error", {})
+        _log.warning(f"  {symbol}: no chart.result, err={err}")
+        return pd.DataFrame()
+    r = result[0]
+    ts = r.get("timestamp", [])
+    if not ts:
+        return pd.DataFrame()
+    q = r["indicators"]["quote"][0]
+    df = pd.DataFrame({
+        "Open":   q.get("open"),
+        "High":   q.get("high"),
+        "Low":    q.get("low"),
+        "Close":  q.get("close"),
+        "Volume": q.get("volume", [0] * len(ts)),
+    }, index=pd.to_datetime(ts, unit="s", utc=True))
+    return df.dropna(subset=["Close"])
+
+
+def _fetch_chart(symbol: str, period: str = "30d",
+                 interval: str = "1h") -> pd.DataFrame:
+    """Fetch OHLCV from Yahoo chart API via http.client."""
+    crumb = _init_yahoo_session()
+
+    for host in _HOSTS:
+        # Try WITH crumb
+        path = (f"/v8/finance/chart/{symbol}"
+                f"?range={period}&interval={interval}&includePrePost=false")
+        if crumb:
+            path += f"&crumb={crumb}"
+
+        try:
+            st, body, _ = _http_get(host, path, timeout=15)
+            _log.info(f"  {symbol}@{host}: {st} ({len(body)}b)")
+            if st == 200:
+                df = _parse_chart_json(body, symbol)
+                if not df.empty:
+                    return df
+            elif st in (401, 403):
+                _log.warning(f"  {symbol}@{host}: {st} → reset crumb")
+                _reset_crumb()
+                crumb = None
+            else:
+                _log.warning(f"  {symbol}@{host}: HTTP {st}")
+        except Exception as exc:
+            _log.error(f"  {symbol}@{host}: {type(exc).__name__}: {exc}")
+
+    # Try WITHOUT crumb on query2
+    try:
+        path = (f"/v8/finance/chart/{symbol}"
+                f"?range={period}&interval={interval}&includePrePost=false")
+        st, body, _ = _http_get("query2.finance.yahoo.com", path, timeout=15)
+        _log.info(f"  {symbol}@query2(no-crumb): {st} ({len(body)}b)")
+        if st == 200:
+            df = _parse_chart_json(body, symbol)
+            if not df.empty:
+                return df
+    except Exception as exc:
+        _log.error(f"  {symbol} no-crumb: {type(exc).__name__}: {exc}")
+
+    _log.warning(f"  {symbol}: FAILED all")
+    return pd.DataFrame()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  RESAMPLE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _resample_ohlcv(df: pd.DataFrame, rule: str) -> pd.DataFrame:
+    agg = {"Open": "first", "High": "max", "Low": "min",
+           "Close": "last", "Volume": "sum"}
+    agg = {k: v for k, v in agg.items() if k in df.columns}
+    return df.resample(rule).agg(agg).dropna(subset=["Close"])
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  PUBLIC API
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def fetch_pair(pair_name: str, timeframe: str = "H4") -> pd.DataFrame:
+    info = FOREX_PAIRS[pair_name]
+    df = _fetch_chart(info["ticker"], "30d", "1h")
+    if df.empty:
+        return df
+    if timeframe == "H4":
+        df = _resample_ohlcv(df, "4h")
+    return df
+
+
+_consecutive_fail = 0
+_MAX_CONSEC_FAIL = 5          # abort early when network is dead
+
+
+def fetch_all_pairs(timeframe: str = "H4",
+                    progress_callback=None) -> dict:
+    global _consecutive_fail
+    _consecutive_fail = 0
+    results: dict[str, pd.DataFrame] = {}
+    total = len(FOREX_PAIRS)
+
+    for i, pair in enumerate(FOREX_PAIRS):
+        if progress_callback:
+            progress_callback(i, total, f"Scarico {pair}…")
+        try:
+            df = fetch_pair(pair, timeframe)
+            if not df.empty:
+                results[pair] = df
+                _consecutive_fail = 0
+                _log.info(f"  ✓ {pair}: {len(df)} bars")
+            else:
+                _consecutive_fail += 1
+                _log.warning(f"  ✗ {pair} vuoto (fail#{_consecutive_fail})")
+        except Exception as exc:
+            _consecutive_fail += 1
+            _log.error(f"  ✗ {pair}: {exc} (fail#{_consecutive_fail})")
+
+        if progress_callback:
+            progress_callback(i + 1, total, f"{pair} ({len(results)}/{i+1})")
+
+        # early abort
+        if _consecutive_fail >= _MAX_CONSEC_FAIL and not results:
+            _log.error(
+                f"ABORT: {_consecutive_fail} consecutive failures, 0 success")
+            if progress_callback:
+                progress_callback(i + 1, total,
+                    f"Abort: {_consecutive_fail} fallimenti consecutivi")
+            break
+        time.sleep(0.05)
+    return results
+
+
+def fetch_futures_volume(currency: str, timeframe: str = "H4") -> pd.DataFrame:
+    ticker = FUTURES_TICKERS.get(currency)
+    if not ticker:
+        return pd.DataFrame()
+    df = _fetch_chart(ticker, "30d", "1h")
+    if df.empty:
+        return df
+    if timeframe == "H4":
+        df = _resample_ohlcv(df, "4h")
+    return df
+
+
+def fetch_all_futures(timeframe: str = "H4",
+                      progress_callback=None) -> dict:
+    results: dict[str, pd.DataFrame] = {}
+    total = len(CURRENCIES)
+    for i, ccy in enumerate(CURRENCIES):
+        if progress_callback:
+            progress_callback(i, total, f"Futures {ccy}…")
+        try:
+            df = fetch_futures_volume(ccy, timeframe)
+            if not df.empty:
+                results[ccy] = df
+                _log.info(f"  ✓ Futures {ccy}: {len(df)} bars")
+        except Exception as exc:
+            _log.error(f"  ✗ Futures {ccy}: {exc}")
+        if progress_callback:
+            progress_callback(i + 1, total, f"Futures {ccy} ({len(results)}/{i+1})")
+        time.sleep(0.05)
+    return results
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  CURRENCY RETURNS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def compute_currency_returns(all_pairs: dict, window: int = 1) -> pd.DataFrame:
+    if not all_pairs:
+        return pd.DataFrame()
+
+    common_idx = None
+    for df in all_pairs.values():
+        if common_idx is None:
+            common_idx = df.index
+        else:
+            common_idx = common_idx.intersection(df.index)
+
+    if common_idx is None or len(common_idx) < 2:
+        return pd.DataFrame()
+
+    ccy_ret = {c: [] for c in CURRENCIES}
+    for pair, pdf in all_pairs.items():
+        info = FOREX_PAIRS[pair]
+        close = pdf["Close"].reindex(common_idx)
+        ret = close.pct_change(window).fillna(0)
+        if info["base"] in ccy_ret:
+            ccy_ret[info["base"]].append(ret)
+        if info["quote"] in ccy_ret:
+            ccy_ret[info["quote"]].append(-ret)
+
+    result = pd.DataFrame(index=common_idx)
+    for c in CURRENCIES:
+        result[c] = (pd.concat(ccy_ret[c], axis=1).mean(axis=1)
+                     if ccy_ret[c] else 0.0)
+    return result

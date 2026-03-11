@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Cache applicazione
+cache/
+
+# Build Android
+android_app/build/
+android_app/__pycache__/
+*.apk
+*.apk.sha1
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Streamlit
+.streamlit/secrets.toml

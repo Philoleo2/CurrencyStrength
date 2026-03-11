@@ -1,0 +1,302 @@
+// This Pine Script™ source code is subject to the terms of the Mozilla Public License 2.0
+// https://mozilla.org/MPL/2.0/
+// © AutoTrendline Indicator
+
+//@version=5
+indicator("Auto Trendline from Origin", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INPUTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Punto di origine: clicca sul grafico per selezionarlo
+originTime  = input.time(timestamp("2025-01-01 00:00"), "📌 Punto di Origine (clicca sul grafico)", confirm=true)
+originPrice = input.price(0.0, "📌 Prezzo Origine", confirm=true)
+
+// Parametri di calcolo
+lookbackBars    = input.int(300, "📏 Barre da analizzare dal punto di origine", minval=10, maxval=1000)
+touchTolerance  = input.float(0.3, "🎯 Tolleranza tocco (x ATR)", minval=0.05, maxval=2.0, step=0.05)
+
+// Regolazione manuale dell'inclinazione
+manualSlopeAdj  = input.float(0.0, "🔧 Regolazione inclinazione manuale", minval=-50.0, maxval=50.0, step=0.1)
+
+// Direzione forzata o automatica
+directionMode   = input.string("Auto", "📐 Direzione trendline", options=["Auto", "Supporto (Minimi)", "Resistenza (Massimi)"])
+
+// Stile della linea
+lineColor       = input.color(color.new(color.orange, 0), "🎨 Colore trendline")
+lineWidth       = input.int(2, "Spessore linea", minval=1, maxval=5)
+lineStyleInput  = input.string("Continua", "Stile linea", options=["Continua", "Tratteggiata", "Puntinata"])
+showTouchDots   = input.bool(true, "👁 Mostra punti di tocco")
+extendRight     = input.bool(true, "➡ Estendi la linea a destra")
+showInfoLabel   = input.bool(true, "ℹ Mostra etichetta info")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CALCOLI PREPARATORI
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Stile della linea
+lineStyle = switch lineStyleInput
+    "Continua"     => line.style_solid
+    "Tratteggiata" => line.style_dashed
+    "Puntinata"    => line.style_dotted
+    => line.style_solid
+
+// ATR per la tolleranza
+atrValue = ta.atr(14)
+tolerance = atrValue * touchTolerance
+
+// Trova la barra del punto di origine
+isOriginBar = time == originTime
+var int originBarIndex = na
+if isOriginBar
+    originBarIndex := bar_index
+
+// Calcola quante barre sono passate dal punto di origine
+barsSinceOrigin = na(originBarIndex) ? na : bar_index - originBarIndex
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ALGORITMO PRINCIPALE - Trova la miglior pendenza
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Variabili persistenti
+var float bestSlope         = na
+var int   bestTouches       = 0
+var bool  isSupport         = true
+var line  trendLine         = na
+var label infoLabel         = na
+
+// Pulisci le label dei tocchi precedenti
+var label[] touchLabels = array.new_label(0)
+
+if barstate.islast and not na(originBarIndex) and barsSinceOrigin >= 1
+    // Pulisci label precedenti
+    for i = 0 to array.size(touchLabels) - 1
+        label.delete(array.get(touchLabels, i))
+    array.clear(touchLabels)
+
+    // Determina la direzione: supporto o resistenza
+    float avgPrice = close
+    
+    if directionMode == "Auto"
+        // Se il prezzo corrente è sopra l'origine → resistenza (massimi)
+        // Se il prezzo corrente è sotto l'origine → supporto (minimi)
+        isSupport := close < originPrice
+    else if directionMode == "Supporto (Minimi)"
+        isSupport := true
+    else
+        isSupport := false
+
+    // ─────────────────────────────────────────────────────────────────
+    // FASE 1: Raccolta candidati di pendenza
+    // ─────────────────────────────────────────────────────────────────
+    
+    // Numero di barre effettive da analizzare
+    int barsToCheck = math.min(lookbackBars, barsSinceOrigin)
+    
+    // Array per le pendenze candidate
+    var float[] candidateSlopes = array.new_float(0)
+    array.clear(candidateSlopes)
+    
+    // Per ogni barra dal punto di origine, calcola la pendenza verso il suo high/low
+    for i = 1 to barsToCheck
+        int idx = bar_index - i
+        if idx >= originBarIndex
+            int deltaX = idx - originBarIndex
+            if deltaX > 0
+                if isSupport
+                    // Per supporto, usa i minimi (low)
+                    float priceAtBar = low[i]
+                    float slope = (priceAtBar - originPrice) / deltaX
+                    array.push(candidateSlopes, slope)
+                else
+                    // Per resistenza, usa i massimi (high)
+                    float priceAtBar = high[i]
+                    float slope = (priceAtBar - originPrice) / deltaX
+                    array.push(candidateSlopes, slope)
+
+    // ─────────────────────────────────────────────────────────────────
+    // FASE 2: Per ogni pendenza candidata, conta i tocchi
+    // ─────────────────────────────────────────────────────────────────
+    
+    float  finalSlope   = na
+    int    maxTouches   = 0
+    bool   slopeValid   = true
+    
+    int numCandidates = array.size(candidateSlopes)
+    
+    for c = 0 to numCandidates - 1
+        float testSlope = array.get(candidateSlopes, c)
+        int   touches   = 0
+        bool  violated  = false
+        
+        // Verifica: la linea non deve essere "bucata" in modo significativo
+        for i = 1 to barsToCheck
+            int idx = bar_index - i
+            if idx >= originBarIndex
+                int deltaX = idx - originBarIndex
+                if deltaX > 0
+                    float linePrice = originPrice + testSlope * deltaX
+                    float currentTol = atrValue * touchTolerance
+                    
+                    if isSupport
+                        // Per supporto: il low deve toccare la linea dal basso
+                        float lowAtBar = low[i]
+                        if lowAtBar >= (linePrice - currentTol) and lowAtBar <= (linePrice + currentTol)
+                            touches += 1
+                        // Se il low va molto sotto la linea → violazione
+                        if lowAtBar < (linePrice - currentTol * 3)
+                            violated := true
+                    else
+                        // Per resistenza: il high deve toccare la linea dall'alto
+                        float highAtBar = high[i]
+                        if highAtBar >= (linePrice - currentTol) and highAtBar <= (linePrice + currentTol)
+                            touches += 1
+                        // Se il high va molto sopra la linea → violazione
+                        if highAtBar > (linePrice + currentTol * 3)
+                            violated := true
+        
+        // Seleziona la pendenza con più tocchi e senza violazioni
+        if touches > maxTouches and not violated
+            maxTouches := touches
+            finalSlope := testSlope
+    
+    // Se nessuna pendenza valida trovata senza violazioni, prendi quella con più tocchi comunque
+    if na(finalSlope)
+        maxTouches := 0
+        for c = 0 to numCandidates - 1
+            float testSlope = array.get(candidateSlopes, c)
+            int touches = 0
+            for i = 1 to barsToCheck
+                int idx = bar_index - i
+                if idx >= originBarIndex
+                    int deltaX = idx - originBarIndex
+                    if deltaX > 0
+                        float linePrice = originPrice + testSlope * deltaX
+                        float currentTol = atrValue * touchTolerance
+                        if isSupport
+                            float lowAtBar = low[i]
+                            if lowAtBar >= (linePrice - currentTol) and lowAtBar <= (linePrice + currentTol)
+                                touches += 1
+                        else
+                            float highAtBar = high[i]
+                            if highAtBar >= (linePrice - currentTol) and highAtBar <= (linePrice + currentTol)
+                                touches += 1
+            if touches > maxTouches
+                maxTouches  := touches
+                finalSlope  := testSlope
+    
+    // Fallback: se ancora nulla, usa pendenza verso l'ultimo close
+    if na(finalSlope)
+        finalSlope := (close - originPrice) / math.max(barsSinceOrigin, 1)
+
+    bestTouches := maxTouches
+    
+    // ─────────────────────────────────────────────────────────────────
+    // FASE 3: Applica la regolazione manuale
+    // ─────────────────────────────────────────────────────────────────
+    
+    // L'offset manuale è in termini di "tick per barra" moltiplicato per un fattore di scala
+    float priceScale = atrValue / 100  // scala l'offset rispetto alla volatilità
+    bestSlope := finalSlope + (manualSlopeAdj * priceScale)
+    
+    // ─────────────────────────────────────────────────────────────────
+    // FASE 4: Disegna la trendline
+    // ─────────────────────────────────────────────────────────────────
+    
+    // Cancella la linea precedente
+    line.delete(trendLine)
+    label.delete(infoLabel)
+    
+    // Calcola il punto finale della trendline
+    int endBarIdx   = extendRight ? bar_index + 50 : bar_index
+    int totalDelta  = endBarIdx - originBarIndex
+    float endPrice  = originPrice + bestSlope * totalDelta
+    
+    // Disegna la linea
+    trendLine := line.new(
+         x1     = originBarIndex,
+         y1     = originPrice,
+         x2     = endBarIdx,
+         y2     = endPrice,
+         color   = lineColor,
+         width   = lineWidth,
+         style   = lineStyle,
+         extend  = extendRight ? extend.right : extend.none)
+    
+    // ─────────────────────────────────────────────────────────────────
+    // FASE 5: Segna i punti di tocco
+    // ─────────────────────────────────────────────────────────────────
+    
+    if showTouchDots
+        for i = 1 to barsToCheck
+            int idx = bar_index - i
+            if idx >= originBarIndex
+                int deltaX = idx - originBarIndex
+                if deltaX > 0
+                    float linePrice = originPrice + bestSlope * deltaX
+                    float currentTol = atrValue * touchTolerance
+                    bool isTouching = false
+                    
+                    if isSupport
+                        float lowAtBar = low[i]
+                        if lowAtBar >= (linePrice - currentTol) and lowAtBar <= (linePrice + currentTol)
+                            isTouching := true
+                    else
+                        float highAtBar = high[i]
+                        if highAtBar >= (linePrice - currentTol) and highAtBar <= (linePrice + currentTol)
+                            isTouching := true
+                    
+                    if isTouching
+                        label touchDot = label.new(
+                             x       = idx,
+                             y       = linePrice,
+                             text    = "●",
+                             color   = color.new(color.white, 100),
+                             textcolor = isSupport ? color.new(color.lime, 0) : color.new(color.red, 0),
+                             style   = isSupport ? label.style_label_up : label.style_label_down,
+                             size    = size.tiny)
+                        array.push(touchLabels, touchDot)
+    
+    // ─────────────────────────────────────────────────────────────────
+    // FASE 6: Etichetta informativa
+    // ─────────────────────────────────────────────────────────────────
+    
+    if showInfoLabel
+        string direction = isSupport ? "SUPPORTO" : "RESISTENZA"
+        string slopeStr  = str.tostring(bestSlope, "#.#####")
+        string touchStr  = str.tostring(bestTouches)
+        string adjStr    = str.tostring(manualSlopeAdj, "#.#")
+        
+        string infoText = direction + "\n" +
+             "Tocchi: " + touchStr + "\n" +
+             "Pendenza: " + slopeStr + "\n" + 
+             "Adj: " + adjStr
+        
+        infoLabel := label.new(
+             x       = originBarIndex + 5,
+             y       = originPrice,
+             text    = infoText,
+             color   = color.new(lineColor, 80),
+             textcolor = lineColor,
+             style   = label.style_label_right,
+             size    = size.normal)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SEGNALE VISIVO: Punto di origine
+// ─────────────────────────────────────────────────────────────────────────────
+
+plotshape(isOriginBar, title="Punto Origine", style=shape.diamond, 
+     location=location.absolute, color=lineColor, size=size.small, 
+     text="ORIGIN", textcolor=lineColor)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ALERT: Prezzo tocca la trendline
+// ─────────────────────────────────────────────────────────────────────────────
+
+float currentLinePrice = na(originBarIndex) or na(bestSlope) ? na : originPrice + bestSlope * (bar_index - originBarIndex)
+bool  priceTouching    = not na(currentLinePrice) and math.abs(close - currentLinePrice) <= tolerance
+
+plot(currentLinePrice, "Trendline Price", color=color.new(lineColor, 80), display=display.data_window)
+
+alertcondition(priceTouching, title="Prezzo tocca trendline", message="Il prezzo sta toccando la trendline auto-ancorata!")
