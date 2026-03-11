@@ -14,6 +14,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -31,6 +33,7 @@ jobs:
           key: scheduler-state-${{ github.run_id }}
           restore-keys: |
             scheduler-state-
+            scheduler-
 
       - name: Ensure cache directory
         run: mkdir -p cache
@@ -47,3 +50,4 @@ jobs:
         with:
           path: cache/
           key: scheduler-state-${{ github.run_id }}
+          enableCrossOsArchive: true
