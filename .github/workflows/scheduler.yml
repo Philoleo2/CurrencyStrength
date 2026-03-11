@@ -1,0 +1,49 @@
+name: Scheduler - Telegram Alerts
+
+on:
+  schedule:
+    # Ogni ora, 10 secondi dopo l'ora piena (cron non supporta secondi, usiamo minuto 1)
+    - cron: '1 * * * *'
+  workflow_dispatch:  # Permette esecuzione manuale dal sito GitHub
+
+jobs:
+  run-scheduler:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore cache state
+        uses: actions/cache/restore@v4
+        with:
+          path: cache/
+          key: scheduler-state-${{ github.run_id }}
+          restore-keys: |
+            scheduler-state-
+
+      - name: Ensure cache directory
+        run: mkdir -p cache
+
+      - name: Run scheduler (single cycle)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -c "from scheduler import run_once; run_once()"
+
+      - name: Save cache state
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: cache/
+          key: scheduler-state-${{ github.run_id }}
