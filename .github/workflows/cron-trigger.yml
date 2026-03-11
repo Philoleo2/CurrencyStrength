@@ -1,0 +1,31 @@
+name: Cron Trigger (hourly)
+
+# Questo workflow usa il cron di GitHub per triggerare il workflow principale.
+# Se il cron non parte, può essere triggerato anche manualmente.
+
+on:
+  schedule:
+    - cron: '1 * * * *'
+    - cron: '31 * * * *'   # fallback: anche a metà ora per sicurezza
+  workflow_dispatch:
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Trigger main scheduler
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Lancia il workflow principale
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'scheduler.yml',
+              ref: 'main'
+            });
+            console.log('Scheduler triggered successfully');
