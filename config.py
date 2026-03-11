@@ -4,6 +4,8 @@ Currency Strength Indicator - Configuration
 Parametri globali, tickers, soglie e pesi per il calcolo della forza valutaria.
 """
 
+import os
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # VALUTE MONITORATE
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -276,8 +278,8 @@ ASSET_ALERT_STATE_FILE = "cache/asset_alert_state.json"
 # 3. Incolla qui sotto e imposta ALERTS_ENABLED = True
 
 ALERTS_ENABLED     = True                         # True per abilitare
-TELEGRAM_BOT_TOKEN = "8727017446:AAEaUigln8Zw4glgqDyaGcXHmwKLQIWG3XY"
-TELEGRAM_CHAT_ID   = "901682485"
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "")
 ALERT_GRADES       = ["A+", "A"]                  # gradi monitorati
 ALERT_STATE_FILE   = "cache/alert_state.json"     # file di stato (non toccare)
 

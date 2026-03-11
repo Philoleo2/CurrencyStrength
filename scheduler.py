@@ -23,6 +23,16 @@ import os
 import json
 from zoneinfo import ZoneInfo
 
+# ── Carica .env locale (se esiste) per variabili Telegram ───────────
+_env_path = os.path.join(os.path.dirname(__file__), ".env")
+if os.path.exists(_env_path):
+    with open(_env_path) as _ef:
+        for _line in _ef:
+            _line = _line.strip()
+            if _line and not _line.startswith("#") and "=" in _line:
+                _k, _v = _line.split("=", 1)
+                os.environ.setdefault(_k.strip(), _v.strip())
+
 _ROME = ZoneInfo("Europe/Rome")
 
 # ── Logging ─────────────────────────────────────────────────────────
