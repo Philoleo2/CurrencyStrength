@@ -182,7 +182,7 @@ with st.sidebar:
     if ALERTS_ENABLED and TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
         st.success("✅ Alert attivi")
         st.caption(f"Gradi monitorati: {', '.join(ALERT_GRADES)}")
-        if st.button("🔔 Invia Test", key="tg_test", use_container_width=True):
+        if st.button("🔔 Invia Test", key="tg_test", width='stretch'):
             if send_test_alert():
                 st.toast("✅ Test inviato!", icon="📱")
             else:
@@ -205,7 +205,7 @@ with st.sidebar:
     st.markdown(f"**{_sb_session['session_label']}**")
     st.caption(f"{_sb_session['utc_now'].strftime('%H:%M')} UTC")
 
-    if st.button("🔄 Aggiorna Dati Ora", use_container_width=True):
+    if st.button("🔄 Aggiorna Dati Ora", width='stretch'):
         st.cache_data.clear()  # svuota cache di TUTTE le pagine (sincronizzazione)
         st.rerun()
 
@@ -615,7 +615,7 @@ fig_bar.update_layout(
     margin=dict(l=60, r=20, t=30, b=40),
     plot_bgcolor="#fafafa",
 )
-st.plotly_chart(fig_bar, use_container_width=True)
+st.plotly_chart(fig_bar, width='stretch')
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SEZIONE 2: GAUGE CHARTS (stile Smart Quant)
@@ -641,7 +641,7 @@ for row_ccys in [row1_ccys, row2_ccys]:
                 unsafe_allow_html=True,
             )
             fig_gauge = make_gauge_chart(score, ccy)
-            st.plotly_chart(fig_gauge, use_container_width=True, key=f"gauge_{ccy}")
+            st.plotly_chart(fig_gauge, width='stretch', key=f"gauge_{ccy}")
 
             # Dettaglio sotto il gauge
             delta_str = f"{delta_val:+.1f}" if delta_val != 0 else "0"
@@ -718,7 +718,7 @@ if is_composite:
     st.dataframe(
         compare_df,
         hide_index=True,
-        use_container_width=True,
+        width='stretch',
         column_config={
             "Score H1": st.column_config.ProgressColumn(
                 min_value=0, max_value=100, format="%.0f",
@@ -777,7 +777,7 @@ if is_composite:
         margin=dict(l=40, r=20, t=40, b=40),
         plot_bgcolor="#fafafa",
     )
-    st.plotly_chart(fig_compare, use_container_width=True)
+    st.plotly_chart(fig_compare, width='stretch')
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -801,7 +801,7 @@ with col_gain:
         if m["delta"] > 0
     ])
     if not gainers_df.empty:
-        st.dataframe(gainers_df, hide_index=True, use_container_width=True)
+        st.dataframe(gainers_df, hide_index=True, width='stretch')
     else:
         st.info("Nessuna valuta in forte accelerazione rialzista")
 
@@ -819,7 +819,7 @@ with col_lose:
         if m["delta"] < 0
     ])
     if not losers_df.empty:
-        st.dataframe(losers_df, hide_index=True, use_container_width=True)
+        st.dataframe(losers_df, hide_index=True, width='stretch')
     else:
         st.info("Nessuna valuta in forte decelerazione")
 
@@ -859,7 +859,7 @@ with c9_col1:
             }
             for ccy, c9 in c9_bull
         ])
-        st.dataframe(c9_bull_df, hide_index=True, use_container_width=True)
+        st.dataframe(c9_bull_df, hide_index=True, width='stretch')
     else:
         st.info("Nessuna valuta con segnale bullish")
 
@@ -874,7 +874,7 @@ with c9_col2:
             }
             for ccy, c9 in c9_bear
         ])
-        st.dataframe(c9_bear_df, hide_index=True, use_container_width=True)
+        st.dataframe(c9_bear_df, hide_index=True, width='stretch')
     else:
         st.info("Nessuna valuta con segnale bearish")
 
@@ -889,7 +889,7 @@ with c9_col3:
             }
             for ccy, c9 in c9_neutral
         ])
-        st.dataframe(c9_neutral_df, hide_index=True, use_container_width=True)
+        st.dataframe(c9_neutral_df, hide_index=True, width='stretch')
     else:
         st.info("—")
 
@@ -916,7 +916,7 @@ fig_c9.update_layout(
     margin=dict(l=40, r=20, t=20, b=40),
     plot_bgcolor="#fafafa",
 )
-st.plotly_chart(fig_c9, use_container_width=True)
+st.plotly_chart(fig_c9, width='stretch')
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1033,7 +1033,7 @@ if atr_context:
     st.dataframe(
         pd.DataFrame(vol_rows),
         hide_index=True,
-        use_container_width=True,
+        width='stretch',
         column_config={
             "Percentile ATR": st.column_config.ProgressColumn(
                 min_value=0, max_value=100, format="%.0f",
@@ -1286,7 +1286,7 @@ if not rolling.empty:
 
         st.plotly_chart(
             fig_strength,
-            use_container_width=True,
+            width='stretch',
             config={
                 "scrollZoom": True,
                 "displayModeBar": True,
@@ -1403,7 +1403,7 @@ for row_ccys in [radar_row1, radar_row2]:
         )
 
         with cols_radar[i]:
-            st.plotly_chart(fig_radar, use_container_width=True, key=f"radar_{ccy}")
+            st.plotly_chart(fig_radar, width='stretch', key=f"radar_{ccy}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1426,7 +1426,7 @@ for ccy in sorted_ccys:
     })
 
 cot_df_display = pd.DataFrame(cot_data_display)
-st.dataframe(cot_df_display, hide_index=True, use_container_width=True)
+st.dataframe(cot_df_display, hide_index=True, width='stretch')
 
 # Grafico COT storico
 if not cot_ts.empty:
@@ -1448,7 +1448,7 @@ if not cot_ts.empty:
         hovermode="x unified",
     )
     fig_cot.add_hline(y=0, line_dash="dash", line_color="gray")
-    st.plotly_chart(fig_cot, use_container_width=True)
+    st.plotly_chart(fig_cot, width='stretch')
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1517,7 +1517,7 @@ if is_composite:
 st.dataframe(
     summary_df,
     hide_index=True,
-    use_container_width=True,
+    width='stretch',
     column_config=col_config,
 )
 
@@ -1733,7 +1733,7 @@ if trade_setups:
         st.dataframe(
             pd.DataFrame(setup_rows),
             hide_index=True,
-            use_container_width=True,
+            width='stretch',
             column_config={
                 "Score": st.column_config.ProgressColumn(
                     "Score", min_value=0, max_value=100, format="%d"
@@ -1815,7 +1815,7 @@ if _signal_history:
         st.dataframe(
             pd.DataFrame(_hist_rows),
             hide_index=True,
-            use_container_width=True,
+            width='stretch',
             height=min(400, 35 * len(_hist_rows) + 38),
         )
 
@@ -1858,7 +1858,7 @@ with _cal_tabs[0]:
                 "Prec.": ev.get("previous", "—"),
                 "Tra": f"{ev['hours_away']:.1f}h",
             })
-        st.dataframe(pd.DataFrame(_up_rows), hide_index=True, use_container_width=True)
+        st.dataframe(pd.DataFrame(_up_rows), hide_index=True, width='stretch')
     else:
         st.info("Nessun evento ad alto impatto nelle prossime 12 ore.")
 
@@ -1877,7 +1877,7 @@ with _cal_tabs[1]:
                 "Prec.": ev.get("previous", "—"),
                 "Fa": f"{ev['hours_ago']:.1f}h",
             })
-        st.dataframe(pd.DataFrame(_rec_rows), hide_index=True, use_container_width=True)
+        st.dataframe(pd.DataFrame(_rec_rows), hide_index=True, width='stretch')
     else:
         st.info("Nessun evento ad alto impatto nelle ultime 4 ore.")
 
@@ -1905,7 +1905,7 @@ fig_heat = px.imshow(
     text_auto=".0f",
 )
 fig_heat.update_layout(height=450, margin=dict(l=40, r=20, t=30, b=40))
-st.plotly_chart(fig_heat, use_container_width=True)
+st.plotly_chart(fig_heat, width='stretch')
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1929,7 +1929,7 @@ if corr_matrix is not None and not corr_matrix.empty:
         text_auto=".2f",
     )
     fig_corr.update_layout(height=450, margin=dict(l=40, r=20, t=30, b=40))
-    st.plotly_chart(fig_corr, use_container_width=True)
+    st.plotly_chart(fig_corr, width='stretch')
 
     # Avvertenze correlazioni alte
     warnings = []

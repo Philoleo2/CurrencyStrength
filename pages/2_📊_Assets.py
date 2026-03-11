@@ -138,7 +138,7 @@ with st.sidebar:
     st.divider()
     st.caption(f"Ultimo aggiornamento: {dt.datetime.now(_ROME).strftime('%Y-%m-%d %H:%M')}")
 
-    if st.button("🔄 Aggiorna Dati Ora", use_container_width=True, key="refresh_assets"):
+    if st.button("🔄 Aggiorna Dati Ora", width='stretch', key="refresh_assets"):
         st.cache_data.clear()
         st.rerun()
 
@@ -397,7 +397,7 @@ for i, asset in enumerate(sorted_assets):
             showlegend=False, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
             height=180, margin=dict(l=5, r=5, t=5, b=5),
         )
-        st.plotly_chart(fig, use_container_width=True, key=f"gauge_{asset}")
+        st.plotly_chart(fig, width='stretch', key=f"gauge_{asset}")
 
         # W Decay caption (sotto gauge)
         _w_decay = c.get("w_decay_pct", 0)
@@ -443,7 +443,7 @@ for i, asset in enumerate(sorted_assets):
                 paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
                 xaxis=dict(visible=False), yaxis=dict(visible=False),
             )
-            st.plotly_chart(fig_spark, use_container_width=True, key=f"spark_{asset}")
+            st.plotly_chart(fig_spark, width='stretch', key=f"spark_{asset}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -476,7 +476,7 @@ fig_bar.update_layout(
     margin=dict(l=120, r=40, t=20, b=30),
     plot_bgcolor="#0e1117", paper_bgcolor="#0e1117",
 )
-st.plotly_chart(fig_bar, use_container_width=True, key="bar_chart")
+st.plotly_chart(fig_bar, width='stretch', key="bar_chart")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -553,7 +553,7 @@ for tab_idx, tab in enumerate(tabs):
         score_cols = [c for c in ["Composito", "Price", "Volume", "COT", "H4", "Daily", "Weekly"]
                       if c in tdf.columns]
         styled = tdf.style.map(_hl_score, subset=score_cols)
-        st.dataframe(styled, use_container_width=True, hide_index=True,
+        st.dataframe(styled, width='stretch', hide_index=True,
                      height=min(350, 80 + 40 * len(class_assets)))
 
 
@@ -678,7 +678,7 @@ fig_c9.update_layout(
     plot_bgcolor="#0e1117",
     paper_bgcolor="#0e1117",
 )
-st.plotly_chart(fig_c9, use_container_width=True, key="c9_chart")
+st.plotly_chart(fig_c9, width='stretch', key="c9_chart")
 
 # Tabella dettaglio Candle-9
 c9_table = []
@@ -690,7 +690,7 @@ for asset, c9 in c9_sorted:
         "Close Attuale": c9.get("candle9_current", 0),
         "Close 9 Candele Fa": c9.get("candle9_past", 0),
     })
-st.dataframe(pd.DataFrame(c9_table), hide_index=True, use_container_width=True)
+st.dataframe(pd.DataFrame(c9_table), hide_index=True, width='stretch')
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -778,7 +778,7 @@ with st.expander("🌡️ Volatilità & Velocità per Asset", expanded=False):
         return ""
 
     styled_vv = vv_df.style.map(_vol_color, subset=["Vol. Regime"])
-    st.dataframe(styled_vv, use_container_width=True, hide_index=True)
+    st.dataframe(styled_vv, width='stretch', hide_index=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -824,7 +824,7 @@ if not rolling.empty:
                 margin=dict(l=40, r=20, t=40, b=30),
                 plot_bgcolor="#0e1117", paper_bgcolor="#0e1117",
             )
-            st.plotly_chart(fig_rolling, use_container_width=True, key="rolling_chart")
+            st.plotly_chart(fig_rolling, width='stretch', key="rolling_chart")
 else:
     st.info("Dati insufficienti per il grafico storico.")
 
@@ -878,7 +878,7 @@ if radar_assets:
         legend=dict(orientation="h", yanchor="bottom", y=-0.15),
         paper_bgcolor="#0e1117",
     )
-    st.plotly_chart(fig_radar, use_container_width=True, key="radar_chart")
+    st.plotly_chart(fig_radar, width='stretch', key="radar_chart")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1051,7 +1051,7 @@ if trade_setups:
     st.dataframe(
         pd.DataFrame(setup_rows),
         hide_index=True,
-        use_container_width=True,
+        width='stretch',
         column_config={
             "Score": st.column_config.ProgressColumn(
                 "Score", min_value=0, max_value=100, format="%d"
@@ -1119,7 +1119,7 @@ if cot_ts is not None and not cot_ts.empty:
                     margin=dict(l=60, r=20, t=30, b=30),
                     plot_bgcolor="#0e1117", paper_bgcolor="#0e1117",
                 )
-                st.plotly_chart(fig_cot, use_container_width=True, key="cot_ts_chart")
+                st.plotly_chart(fig_cot, width='stretch', key="cot_ts_chart")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1141,7 +1141,7 @@ with st.expander("🔗 Matrice di Correlazione tra Asset (30gg)", expanded=False
             margin=dict(l=80, r=20, t=30, b=80),
             plot_bgcolor="#0e1117", paper_bgcolor="#0e1117",
         )
-        st.plotly_chart(fig_corr, use_container_width=True, key="corr_chart")
+        st.plotly_chart(fig_corr, width='stretch', key="corr_chart")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
